@@ -1,0 +1,1321 @@
+<script>
+import Layout from "../../layouts/main";
+import PageHeader from "@/components/page-header";
+import appConfig from "@/app.config";
+import Multiselect from "vue-multiselect";
+import Paginate from "vuejs-paginate";
+import { mapActions } from "vuex";
+import jwt_decode from "jwt-decode";
+import Swal from "sweetalert2";
+export default {
+  page: {
+    title: "Danh sách ứng viên",
+    meta: [
+      {
+        name: "description",
+        content: appConfig.description,
+      },
+    ],
+  },
+  components: {
+    Layout,
+    PageHeader,
+    Multiselect,
+    Paginate,
+  },
+  data() {
+    return {
+      title: "Danh sách ứng viên",
+      userStorage: JSON.parse(localStorage.getItem("user")),
+      user_permissions: [],
+      // Companies
+      companies: [
+        {
+          id: 0,
+          name: "Tất cả công ty",
+        },
+      ],
+      company: {
+        id: 0,
+        name: "Tất cả công ty",
+      },
+
+      //Status
+      statuses: [
+        {
+          id: 0,
+          name: "Tất cả trạng thái",
+        },
+        {
+          id: 1,
+          name: "Pending",
+        },
+        {
+          id: 2,
+          name: "Employer Decline",
+        },
+        {
+          id: 3,
+          name: "Employer Accept",
+        },
+        {
+          id: 4,
+          name: "Company Viewed",
+        },
+        {
+          id: 5,
+          name: "Company Reject",
+        },
+        {
+          id: 6,
+          name: "Company Accept",
+        },
+        {
+          id: 7,
+          name: "Send Test",
+        },
+        {
+          id: 8,
+          name: "Candidate Submit",
+        },
+        {
+          id: 9,
+          name: "Failed Test",
+        },
+        {
+          id: 10,
+          name: "Passed Test",
+        },
+        {
+          id: 11,
+          name: "Schedule Interview",
+        },
+        {
+          id: 12,
+          name: "Candidate Reject Interview",
+        },
+        {
+          id: 13,
+          name: "Interviewed",
+        },
+        {
+          id: 14,
+          name: "Failed Interview",
+        },
+        {
+          id: 15,
+          name: "Offer",
+        },
+        {
+          id: 16,
+          name: "Onboard",
+        },
+        {
+          id: 17,
+          name: "Resign",
+        },
+        {
+          id: 18,
+          name: "Completed",
+        },
+      ],
+      status: {
+        id: 0,
+        name: "Tất cả trạng thái",
+      },
+      //Sort
+      sorts: [
+        {
+          id: 0,
+          name: "Ngày giới thiệu",
+        },
+        {
+          id: 1,
+          name: "Tên ứng viên",
+        },
+        {
+          id: 2,
+          name: "Tên công việc",
+        },
+      ],
+      sort: {
+        id: 0,
+        name: "Ngày giới thiệu",
+      },
+
+      // Search
+      search_value: "",
+
+      //Date
+      dateFrom: "",
+      dateTo: "",
+      timestampFrom: 0,
+      timestampTo: 0,
+
+      // Page
+      page_index: 1,
+      page_size: 20,
+      total_pages: 1,
+      total_count: 0,
+      //Response data
+      introductions: [],
+    };
+  },
+  computed: {
+    notification() {
+      return this.$store ? this.$store.state.notification : null;
+    },
+    notificationAutoCloseDuration() {
+      return this.$store && this.$store.state.notification ? 5 : 0;
+    },
+  },
+  mounted() {
+    this.getCompaniesForFilter();
+    this.searchCandidate();
+    this.decodeToken();
+  },
+  created() {
+    this.unsub = this.$store.subscribe((mut, state) => {
+      switch (mut.type) {
+        case "companies/getCompaniesSuccess":
+          //Get companies
+          if (
+            this.companies.length <
+            state.companies.companiesData.companies.length + 1
+          ) {
+            this.companies = this.companies.concat(
+              state.companies.companiesData.companies
+            );
+          }
+          break;
+        case "introductions/introductionDataSuccess":
+          // Get all candidate
+          this.introductions =
+            state.introductions.introductionData.candidateIntroductions;
+          this.page_index = state.introductions.introductionData.pageIndex + 1;
+          this.total_pages = state.introductions.introductionData.totalPages;
+
+          break;
+      }
+    });
+  },
+  beforeDestroy() {
+    this.unsub();
+  },
+  watch: {
+    search_value: function () {
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+      this.timer = setTimeout(() => {
+        this.searchCandidate();
+      }, 800);
+    },
+    company: function () {
+      this.searchCandidate();
+    },
+    status: function () {
+      this.searchCandidate();
+    },
+    sort: function () {
+      this.searchCandidate();
+    },
+    dateFrom: function () {
+      const date = new Date(document.getElementById("dateFrom").value);
+      date.setHours(0, 0, 0, 0);
+      this.timestampFrom = date.getTime();
+      this.searchCandidate();
+    },
+    dateTo: function () {
+      const date = new Date(document.getElementById("dateTo").value);
+      date.setHours(0, 0, 0, 0);
+      this.timestampTo = date.getTime();
+      this.searchCandidate();
+    },
+  },
+  methods: {
+    ...mapActions("introductions", ["searchCandidateIntroductinForEmplorer"]),
+    ...mapActions("companies", ["getCompaniesList"]),
+
+    decodeToken() {
+      var decoded = jwt_decode(this.userStorage.token)
+      this.user_permissions = decoded.permission;
+    },
+
+    checkPermisstion(permission) {
+      return this.user_permissions.includes(permission);
+    },
+
+    getCompaniesForFilter() {
+      this.getCompaniesList();
+    },
+
+    clickCallback(pageNum) {
+      this.page_index = pageNum;
+      this.searchCandidate();
+    },
+
+    searchCandidateButtonAction() {
+      if (this.checkPermisstion("candidate.all") || this.checkPermisstion("candidate.search")) {
+        this.searchCandidate();
+      } else {
+        Swal.fire("Bạn chưa được cấp quyền", "", "error").then(() => {});
+      }
+    },
+
+    searchCandidate() {
+      const keyword = this.search_value;
+      const company_ids = this.company.id;
+      const status = this.status.id;
+      const page_index = this.page_index - 1;
+      const page_size = this.page_size;
+      const sort_by = this.sort.id;
+      const introduction_date_from = this.timestampFrom;
+      const introduction_date_to = this.timestampTo;
+
+      this.searchCandidateIntroductinForEmplorer({
+        keyword,
+        company_ids,
+        status,
+        page_index,
+        page_size,
+        sort_by,
+        introduction_date_from,
+        introduction_date_to,
+      });
+    },
+
+    getDateString(timestamp) {
+      var date = new Date(timestamp);
+      return (
+        date.getDate() + "/" + (date.getMonth() + 1) + "/" + date.getFullYear()
+      );
+    },
+
+    viewDetail(introduction_id) {
+      if (
+        !(
+          this.checkPermisstion("candidate.all") ||
+          this.checkPermisstion("candidate.detail")
+        )
+      ) {
+        Swal.fire("Bạn chưa được cấp quyền", "", "error").then(() => {});
+        return;
+      }
+      this.$router.push({
+        path: "/refer-candidate-detail?id=" + introduction_id,
+      });
+    },
+  },
+};
+</script>
+<template>
+  <Layout>
+    <!-- <div class="">
+      <div class="tool-bar d-flex align-items-center">
+        <div style="flex: 1">
+          <h4><i class="fas fa-user-friends"></i> Danh sách ứng viên</h4>
+        </div>
+      </div> -->
+    <div class="d-flex">
+      <i
+        class="fas fa-user-friends"
+        style="font-size: 20px; margin-right: 7px"
+      ></i>
+      <PageHeader :title="title" :items="items" />
+    </div>
+
+    <div class="mat-list-candidates">
+      <div class="header">
+        <div class="form">
+          <form
+            class="mat-filter-main-candidate mt-2 position-relative"
+            action=""
+          >
+            <!-- Search bar -->
+            <div
+              class="
+                mat-filter-search-candidate
+                d-flex
+                mb-3
+                justify-content-between
+                flex-wrap
+              "
+            >
+              <div class="position-relative input__Search">
+                <i class="fas fa-search"></i>
+                <input
+                  type="text"
+                  class="form-control input__Search__input"
+                  id="inputEmail4"
+                  placeholder="Nhập từ khóa để tìm kiếm"
+                  v-model="search_value"
+                />
+              </div>
+              <div class="btn__handleActionSearch">
+                <button
+                  type="button"
+                  class="btn btn-search"
+                  v-on:click="searchCandidateButtonAction"
+                >
+                  Tìm kiếm
+                </button>
+              </div>
+            </div>
+            <!-- Filter bar-->
+            <div
+              class="
+                mat-filter-candidate
+                flex-wrap
+                align-items-center
+                d-flex
+                mt-4
+              "
+            >
+              <span style="margin-right: 10px"
+                ><i
+                  class="fas fa-filter"
+                  style="font-size: 17px; margin-top: 5px"
+                ></i
+                >Lọc theo</span
+              >
+              <div class="mat-filter-select-candidate">
+                <div class="mat-option-select-candidate">
+                  <!-- Company dropdown list -->
+                  <div class="mat-filter-text">
+                    <span class="mat-title-filter"> Công ty</span>
+                  </div>
+                  <multiselect
+                    class="optionSelected__company"
+                    v-model="company"
+                    label="name"
+                    :options="companies"
+                    :allow-empty="false"
+                    :show-labels="false"
+                    placeholder="Chọn công ty"
+                  ></multiselect>
+                </div>
+                <div class="mat-option-select-candidate">
+                  <div class="mat-filter-text">
+                    <span class="mat-title-filter">Trạng thái</span>
+                  </div>
+                  <multiselect
+                    class="optionSelected__status"
+                    v-model="status"
+                    label="name"
+                    :options="statuses"
+                    :allow-empty="false"
+                    :show-labels="false"
+                    placeholder="Chọn trạng thái"
+                  ></multiselect>
+                </div>
+                <div class="mat-option-select-candidate">
+                  <div class="mat-filter-text">
+                    <span class="mat-title-filter"> Từ ngày </span>
+                  </div>
+                  <input
+                    id="dateFrom"
+                    type="date"
+                    class="form-control optionSelected__dateFrom"
+                    placeholder="Date from"
+                    v-model="dateFrom"
+                  />
+                </div>
+                <div class="mat-option-select-candidate">
+                  <div class="mat-filter-text">
+                    <span class="mat-title-filter"> Đến ngày </span>
+                  </div>
+                  <input
+                    id="dateTo"
+                    type="date"
+                    class="form-control optionSelected__dateTo"
+                    placeholder="Date to"
+                    v-model="dateTo"
+                  />
+                </div>
+              </div>
+            </div>
+            <!-- <button class="del-filter position-absolute bg-danger text-light" type="button"><span class="arounded bg-light text-danger">1</span> Xóa bộ lọc <i class="fas fa-times ml-2"></i></button> -->
+          </form>
+        </div>
+      </div>
+      <div class="mat-header-candidate justify-content-between">
+        <!-- <div
+            class="d-flex align-items-center"
+            style="font-size: 16px; font-weight: 400"
+          >
+            <span
+              class="mat-find-candidate"
+              style="margin-right: 19px; font-style: italic"
+              v-if="total_count > 0"
+              >Tìm thấy
+              <span class="titleFindCandidate"> {{ total_count }} </span>ứng
+              viên</span
+            >
+            <span
+              class="mat-find-candidate"
+              style="font-style: italic"
+              v-if="total_count === 0"
+              >Không tìm thấy ứng viên nào</span
+            >
+          </div> -->
+        <div
+          class="
+            mt-2
+            sortByCandidate
+            align-items-center
+            justify-content-end
+            flex-wrap
+            mat-sort-candidates
+          "
+        >
+          <div>
+            <span class="mat-find-candidates"
+              ><i class="fas fa-exchange-alt"></i>Sắp xếp theo:</span
+            >
+          </div>
+          <multiselect
+            v-model="sort"
+            label="name"
+            :options="sorts"
+            :allow-empty="false"
+            :show-labels="false"
+            style="width: 200px"
+            placeholder="Chọn loại sắp xếp"
+          ></multiselect>
+        </div>
+      </div>
+
+      <div
+        class="mainTable mt-4"
+        style="width: 100%; background: #fff; height: auto"
+      >
+        <div class="table-scroll">
+          <table class="table">
+            <thead>
+              <tr style="border: 1px solid #eae9e9; background: #f1f1f1">
+                <th
+                  scope="col"
+                  style="border-right: 1px solid #eae9e9"
+                  class="mat-title-table-candidates"
+                >
+                  Tên ứng viên
+                </th>
+                <th
+                  scope="col"
+                  style="border-right: 1px solid #eae9e9"
+                  class="mat-title-table-candidates"
+                >
+                  Tên công việc
+                </th>
+                <th
+                  scope="col"
+                  style="border-right: 1px solid #eae9e9"
+                  class="mat-title-table-candidates"
+                >
+                  Trạng thái
+                </th>
+
+                <th
+                  scope="col"
+                  style="border-right: 1px solid #eae9e9"
+                  class="mat-title-table-candidates"
+                >
+                  Ngày giới thiệu
+                </th>
+              </tr>
+            </thead>
+            <tbody
+              class=""
+              id="accordion"
+              v-for="introduction in introductions"
+              v-bind:key="introduction.candidate_introduction_id"
+            >
+              <tr
+                class="tableMain"
+                v-on:click="viewDetail(introduction.candidate_introduction_id)"
+              >
+                <th
+                  style="border-right: 1px solid #eae9e9"
+                  class="mat-title-table-candidates"
+                >
+                  {{ introduction.candidate_name }}
+                </th>
+                <td
+                  style="border-right: 1px solid #eae9e9"
+                  class="mat-title-table-candidates"
+                >
+                  {{ introduction.post_title }}
+                </td>
+                <td
+                  style="border-right: 1px solid #eae9e9"
+                  class="mat-title-table-candidates"
+                >
+                  {{ introduction.status }}
+                </td>
+
+                <td
+                  style="border-right: 1px solid #eae9e9"
+                  class="mat-title-table-candidates"
+                >
+                  {{ getDateString(introduction.introduction_date) }}
+                </td>
+              </tr>
+              <tr>
+                <td colspan="12" class="hiddenRow">
+                  <div
+                    id="collapseOne"
+                    class="collapse"
+                    aria-labelledby="headingOne"
+                    data-parent="#accordion"
+                  >
+                    <div class="card-body">
+                      <div class="card">
+                        <div class="card-header d-flex">
+                          <div class="avatar">
+                            <img src="none.png" alt="" class="arounded" />
+                          </div>
+                          <div class="info ml-3">
+                            <div class="name">
+                              <h2>Nguyễn Thành Tài</h2>
+                            </div>
+                            <div>
+                              <span class="status">Đang tìm việc</span>
+                            </div>
+                            <div class="title-doc">.Net</div>
+                          </div>
+                        </div>
+                        <div class="card-body row">
+                          <div class="contact col-md-5">
+                            <div class="email row">
+                              <div class="col-md-2">
+                                <i class="fas fa-envelope"></i>
+                              </div>
+                              <div class="content">
+                                <p>Email</p>
+                                <span>Email@gmail.com</span>
+                              </div>
+                            </div>
+                            <div class="phone row">
+                              <div class="col-md-2">
+                                <i class="fas fa-phone-alt"></i>
+                              </div>
+                              <div class="content">
+                                <p>Số điện thoại</p>
+                                <span>(+84)812877299</span>
+                              </div>
+                            </div>
+                            <div class="address row">
+                              <div class="col-md-2">
+                                <i class="fas fa-map-marker-alt"></i>
+                              </div>
+                              <div class="content">
+                                <p>Địa chỉ</p>
+                                <span>Email@gmail.com</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div class="question col-md-7">
+                            <div class="mb-4">
+                              <label for=""
+                                >Lí do ứng viên phù hợp với vị trí này</label
+                              >
+                              <input type="text" class="form-control" id="" />
+                            </div>
+                            <div>
+                              <label for=""
+                                >Tại sao ứng viên thay đổi công việc và kỳ vọng
+                                của cô ấy / anh ấy là gì</label
+                              >
+                              <input type="text" class="form-control" id="" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="mat-paging-candidate-collab d-flex align-items-center">
+          <paginate
+            :page-count="total_pages"
+            :click-handler="clickCallback"
+            :prev-text="'Trước'"
+            :next-text="'Sau'"
+            :container-class="'pagination'"
+            :active-class="'pagination-active'"
+            :page-link-class="'pagination-item'"
+            v-model="page_index"
+          >
+          </paginate>
+        </div>
+      </div>
+    </div>
+  </Layout>
+</template>
+<style lang='scss'>
+.mat-title-header-collab-candidate {
+  font-size: 20px;
+  font-weight: 600;
+  color: #495057;
+  flex: 1;
+
+  @media screen and (max-width: 768px) {
+    font-size: 18px;
+  }
+  @media screen and (max-width: 480px) {
+    font-size: 15px;
+  }
+}
+.mat-find-candidates {
+  @media screen and (max-width: 768px) {
+    font-size: 14px;
+  }
+  @media screen and (max-width: 768px) {
+    font-size: 13px;
+  }
+}
+.mat-title-table-candidates {
+  @media screen and (max-width: 767px) {
+    font-size: 14px;
+  }
+  @media screen and (max-width: 767px) {
+    font-size: 12px;
+  }
+}
+.mat-sort-candidates {
+  display: flex;
+
+  @media screen and (max-width: 480px) {
+    justify-content: flex-end;
+  }
+}
+.sortByCandidate {
+  .multiselect__tags {
+    border: none !important;
+    border-radius: 0;
+    border-bottom: 1.5px solid #b1b1b1 !important;
+    background-color: transparent !important;
+    margin-top: 2px !important;
+    font-family: "Roboto", sans-serif !important;
+    font-weight: 500 !important;
+  }
+  .multiselect__input,
+  .multiselect__single {
+    background-color: #3030 !important;
+  }
+}
+.pagingItem {
+  padding: 5px 10px 5px 0;
+  justify-content: flex-end;
+
+  font-weight: 500;
+  font-family: "Roboto", sans-serif;
+  background: #fff;
+  width: 100%;
+}
+.textPaging {
+  display: flex;
+}
+.textPaging .active {
+  background: #5b73e8;
+  color: #ffffff;
+}
+.textPaging .active:hover {
+  background: #4661e9;
+}
+.textPaging div {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  margin-right: 3px;
+  width: 38px;
+  font-weight: 500;
+  font-family: "Roboto", sans-serif;
+  color: #000;
+  height: 38px;
+  border: 1px solid #eae9e9;
+  transition: all 0.1s linear;
+}
+.textPaging div:hover {
+  background-color: #eae9e9;
+}
+.mainTable {
+  margin-bottom: 15px;
+  -webkit-box-shadow: 0px 3px 6px 0px rgba(186, 186, 186, 1);
+  -moz-box-shadow: 0px 3px 6px 0px rgba(186, 186, 186, 1);
+  box-shadow: 0px 3px 6px 0px rgba(186, 186, 186, 1);
+  .tableMain {
+    border-top: 1px solid #eae9e9;
+    cursor: pointer;
+    &:hover {
+      background-color: #f0f0f0;
+    }
+  }
+}
+.mat-option-select-candidate {
+  margin-right: 10px;
+  display: flex;
+  position: relative !important;
+}
+.mat-option-select-candidate i {
+  position: absolute;
+  right: 0;
+  bottom: 15px;
+  color: #666565;
+}
+
+.handleBtn {
+  display: flex;
+  justify-content: flex-end;
+}
+.btnCreateCandidate {
+  height: 37px;
+  padding: 3px 8px;
+  border: none;
+  outline: none;
+  border-radius: 3px;
+  background: #fdb327;
+  -webkit-box-shadow: 0px 4px 8px -3px rgba(128, 128, 128, 1);
+  -moz-box-shadow: 0px 4px 8px -3px rgba(128, 128, 128, 1);
+  box-shadow: 0px 4px 8px -3px rgba(128, 128, 128, 1);
+  transition: all 0.2s ease-in-out;
+}
+.btnCreateCandidate:hover {
+  background: #fdad19;
+}
+body {
+  font-family: Roboto, sans-serif !important;
+  background-color: #f3f2ef;
+}
+
+.btn:focus {
+  box-shadow: none;
+}
+.btn__handleActionSearch {
+  margin-left: 15px;
+  width: calc(15% - 15px);
+  @media screen and (max-width: 480px) {
+    margin-left: 0px;
+  }
+}
+.btn__handleActionSearch .btn-search:hover {
+  background-color: #5b73e8;
+  color: white;
+}
+.btn-search {
+  background-color: #5b73e8;
+  color: white;
+  transition: all 0.2s ease-in;
+}
+
+.view,
+.status {
+  color: #fff;
+  background-color: #5b73e8;
+}
+
+i[class^="fa"] {
+  margin-right: 5px;
+}
+
+.fas.fa-exchange-alt {
+  transform: rotate(90deg);
+}
+
+.arounded {
+  border-radius: 50%;
+}
+
+.title h2 {
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.mat-filter-candidate .form-control,
+.mat-list-candidates .sort .form-control {
+  border: none;
+  border-bottom: 2px solid #ccc;
+  border-radius: 0;
+}
+
+.form-control:focus {
+  box-shadow: none;
+  border-color: #315fb5;
+}
+
+.mat-filter-main-candidate .mat-filter-candidate {
+  background-color: #fff;
+  padding: 15px 15px 20px;
+  border-radius: 10px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  display: flex;
+  @media screen and (max-width: 480px) {
+    padding: 12px 12px 15px;
+  }
+  @media screen and (max-width: 768px) {
+    padding: 10px 10px 13px;
+  }
+  .multiselect__tag {
+  }
+  .multiselect__tags {
+    border: none !important;
+    border-radius: 0;
+
+    border-bottom: 1.5px solid #b1b1b1 !important;
+    background-color: #3030 !important;
+    margin-top: 2px !important;
+    font-family: "Roboto", sans-serif !important;
+    font-weight: 500 !important;
+  }
+}
+
+.mat-filter-main-candidate .mat-filter-candidate input {
+  font-size: 14px;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.del-filter {
+  font-size: 11px;
+  border: 0;
+  border-radius: 20px;
+  padding: 2px 10px;
+  top: -10px;
+  padding-left: 3px;
+  left: 15px;
+  box-shadow: 1px 1px 5px rgb(0 0 0 / 74%);
+}
+
+.del-filter:focus {
+  outline: 0;
+}
+
+.del-filter span {
+  padding: 1px 4px;
+}
+
+.mat-filter-search-candidate input {
+  border: none;
+}
+.mat-filter-search-candidate .input__Search i {
+  position: absolute;
+  top: 50% !important;
+  transform: translateY(-50%);
+  padding: 0 5px;
+  margin-left: 10px;
+}
+.mat-filter-search-candidate .input__Search {
+  display: flex;
+  align-items: center;
+  width: 85%;
+  background: #ffffff;
+  border: 1px solid #eae9e9;
+  border-radius: 5px;
+  @media screen and (max-width: 768px) {
+    font-size: 13px;
+  }
+}
+
+.mat-filter-search-candidate button {
+  padding: 13px;
+}
+
+.mat-filter-search-candidate i[class^="fa"] {
+  top: 20px;
+  left: 10px;
+}
+
+.mat-list-candidates .thead {
+  background-color: #ececec;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.mat-list-candidates .thead > div {
+  padding: 15px 10px;
+}
+
+.tbody > div#accordion {
+  padding: 15px 0;
+}
+
+.mat-list-candidates .thead.row {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.mat-list-candidates tbody {
+  background-color: #fff;
+}
+
+.view {
+  padding: 2px 10px;
+  font-weight: normal;
+  font-size: 13px;
+  border-radius: 15px;
+}
+
+.view:hover {
+  cursor: pointer;
+}
+
+.hiddenRow {
+  padding: 0 !important;
+  position: static;
+}
+
+/* .collapse,
+.collapsing,
+.collapse.show {
+  background-color: #fff;
+} */
+
+.tool {
+  top: 0;
+  left: 100%;
+  box-shadow: 0 0 5px rgb(0 0 0 / 75%);
+  border-radius: 5px;
+  width: 0px;
+  visibility: hidden;
+  opacity: 0;
+  transition: all 0.5s;
+}
+
+.tool i[class^="fa"] {
+  margin-right: 15px;
+}
+
+.tool.open {
+  width: 250px;
+  visibility: visible;
+  opacity: 1;
+}
+
+.tool ul {
+  border-radius: 5px;
+}
+
+.status {
+  padding: 3px 15px;
+  border-radius: 15px;
+}
+
+.name h2 {
+  font-size: 24px;
+}
+
+.info div {
+  margin-bottom: 5px;
+}
+
+.contact i[class^="fa"] {
+  font-size: 25px;
+  padding-top: 10px;
+}
+
+.contact .content p {
+  margin-bottom: 0.5rem;
+}
+
+.contact > div {
+  margin-bottom: 15px;
+}
+
+.contact .content span {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.question input {
+  width: 100%;
+  padding: 25px;
+}
+
+/* UPLOAD */
+
+a {
+  color: #000;
+}
+
+a:hover {
+  text-decoration: none;
+  color: #000;
+}
+
+.title h2 span::after {
+  content: "<";
+  padding: 7px 13px;
+  border-radius: 50%;
+  background: #fff;
+  margin-right: 10px;
+}
+
+.upload-main {
+  background-color: #fff;
+  border: 3px dashed #494949;
+  border-radius: 10px;
+}
+
+.upload-main .upload-container {
+  padding: 25px 10px;
+  color: #717386;
+}
+
+.upload-main .upload-container:hover {
+  cursor: pointer;
+}
+
+.upload-main .upload-container p i {
+  font-size: 40px;
+}
+
+.upload-main .upload-container p {
+  margin-bottom: 0;
+}
+
+.upload-main .upload-container .btn-upload {
+  border-radius: 7px;
+  margin-top: 10px;
+}
+
+.pagination a {
+  float: left;
+  padding: 8px 16px;
+  text-decoration: none;
+  border: 1px solid #ddd;
+  font-size: 1em;
+  cursor: pointer;
+  border-radius: 4px;
+  margin-left: 5px;
+  color: #4e4e4e;
+  background-color: white;
+}
+.pagination-active a {
+  background-color: #5b73e8;
+  color: white;
+}
+.pagination-item {
+  color: #4e4e4e;
+  background-color: white;
+}
+
+.pagination a:hover:not(.active) {
+  background-color: #5b73e8;
+  color: white;
+}
+
+.input__Search__input {
+  padding-left: 50px !important;
+}
+
+.mat-title-filter {
+  @media screen and (max-width: 600px) {
+    font-size: 13px;
+  }
+}
+.optionSelected__company {
+  width: 200px;
+  @media screen and (max-width: 768px) {
+    width: 240px;
+  }
+  @media screen and (max-width: 480px) {
+    width: 200px;
+  }
+}
+.optionSelected__status {
+  width: 200px;
+
+  @media screen and (max-width: 768px) {
+    width: 120px;
+  }
+  @media screen and (max-width: 480px) {
+    width: 200px;
+  }
+}
+.optionSelected__dateFrom {
+  width: 130px;
+
+  @media screen and (max-width: 768px) {
+    width: 240px;
+  }
+  @media screen and (max-width: 480px) {
+    width: 200px;
+  }
+}
+.optionSelected__dateTo {
+  width: 130px;
+
+  @media screen and (max-width: 768px) {
+    width: 240px;
+  }
+  @media screen and (max-width: 480px) {
+    width: 200px;
+  }
+}
+.btn__handleActionSearch button {
+  width: 100% !important;
+}
+.mat-paging-candidate-collab {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+  padding: 15px;
+}
+.mat-paging-candidate-collab .iconPaging {
+  flex: 1;
+}
+.mat-paging-candidate-collab {
+  align-items: center;
+  margin-right: 15px;
+  font-weight: 500;
+
+  font-family: "Roboto", sans-serif;
+  ol,
+  ul,
+  dl {
+    margin: 0 !important;
+  }
+  @media screen and (max-width: 767px) {
+    font-size: 14px;
+    height: 50px;
+  }
+  @media screen and (max-width: 599px) {
+    font-size: 12px;
+    height: 40px;
+  }
+  .pagination {
+    @media screen and (max-width: 767px) {
+      a {
+        padding: 5px 12px;
+      }
+    }
+  }
+}
+.mat-option-select-candidate {
+  margin-right: 10px;
+  position: relative !important;
+  .mat-title-filter {
+    margin: 0 10px;
+    color: #4e4e4e;
+  }
+  align-items: center;
+  display: flex;
+}
+
+.mat-filter-select-candidate {
+  display: flex;
+  flex-wrap: wrap;
+
+  @media screen and (max-width: 768px) {
+  }
+  @media screen and (max-width: 480px) {
+    display: block;
+  }
+}
+.mat-filter-search-candidate {
+  @media (min-width: 768px) and (max-width: 1023.98px) {
+    .input__Search,
+    .btn__handleActionSearch .btn-search {
+      height: 40px;
+    }
+  }
+  @media (max-width: 767.98px) {
+    .input__Search,
+    .btn__handleActionSearch .btn-search {
+      height: 35px;
+    }
+  }
+}
+
+@media (max-width: 1480px) {
+  .mat-filter-candidate {
+    display: block !important;
+    padding: 15px;
+
+    > span {
+      width: 100% !important;
+      justify-content: start !important;
+    }
+  }
+}
+@media (max-width: 767.98px) {
+  .mat-filter-search-candidate {
+    .input__Search {
+      width: 80% !important;
+    }
+
+    .btn__handleActionSearch {
+      width: calc(20% - 15px);
+
+      .btn-search {
+        padding: 0;
+      }
+    }
+  }
+}
+
+@media (max-width: 642px) {
+  .mat-filter-candidate {
+    .mat-filter-select-candidate {
+      .mat-option-select-candidate {
+        .multiselect,
+        input[type="date"] {
+        }
+      }
+    }
+  }
+}
+
+@media (max-width: 540px) {
+  .mat-list-candidates {
+    .header {
+      .sort {
+        margin-bottom: 10px;
+      }
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .mat-filter-search-candidate {
+    .input__Search {
+      width: 100% !important;
+    }
+
+    .btn__handleActionSearch {
+      margin-top: 10px;
+      width: 100%;
+    }
+  }
+}
+
+.table-modal-scroll,
+.table-scroll {
+  $min-width-desktop: 1366px;
+  @media (max-width: #{$min-width-desktop - 0.02px}) {
+    overflow: auto;
+  }
+  table {
+    th {
+      white-space: nowrap;
+    }
+  }
+}
+.mat-filter-candidate {
+  .multiselect__content {
+    width: 100%;
+    .multiselect__option {
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+  }
+}
+</style>

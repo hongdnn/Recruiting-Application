@@ -1,0 +1,18 @@
+# Dependency directories
+node_modules
+
+# Logs
+errors.log
+
+# Lock
+package-lock.json
+
+# Javascript compile
+lib
+.vscode
+
+# Backend build
+src_backend/build
+
+# Environment variable
+.env
